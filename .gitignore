@@ -1,0 +1,21 @@
+# local run artifacts — never publish
+*.log
+logs/
+nohup.out
+
+# any machine-local override of the serve/build entry points
+serve.local.sh
+build.local.sh
+*.local
+
+# model files
+*.gguf
+
+# llama.cpp build trees, if built in place
+build/
+build-*/
+
+# python
+__pycache__/
+*.py[cod]
+.venv/
