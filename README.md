@@ -1,8 +1,6 @@
-# Qwen3.8-27B on 12 GB VRAM + 8 GB RAM
-
-Runs on one 12 GB card. Stock llama.cpp at `254b177`. No fork, no patches.
-
-Result:
+# Qwen3.8-27B-GSQ-RCO-Heretic (IQ3_S) @ 64k context
+# ~16-18 tok/sec decode, ~280-600 tok/sec prefill
+# on just 12GB VRAM + 8GB RAM
 
 | metric | measured |
 |---|---|
@@ -10,10 +8,6 @@ Result:
 | Prefill | 280 tok/s median over the same 163 (max 673). 605 on a 4-11k prompt, 533 on a 57k prompt |
 | Context | 64000 tokens. A 57232-token prompt prefills at 533 tok/s, no OOM. One slot |
 | VRAM | 11724/12282 MiB used idle (230 free). 11947 used peak on the 57k request (7 free) |
-| RAM | 2.1-2.2 GiB idle, 2.8 GiB after one 57k request, 4.0 GiB after three 11k requests. Budget 8 GB |
-| Load | 1.8-2.0 s to `model loaded` when the 11 GiB file is in page cache, about 10 s cold |
-
-This is not BF16. Base is 53.8 GB at 16-bit and does not fit. This runs the GSQ-RCO `IQ3_S` GGUF at 3.5 bits/weight. Authors report 99.8% of BF16 on task average. Details and caveats under Quality.
 
 ---
 
@@ -27,7 +21,7 @@ Same flags, same budget for both. Pick one:
 | Abliterated | [0bserverx/Qwen3.8-27B-Heretic-GSQ-RCO-GGUF](https://huggingface.co/0bserverx/Qwen3.8-27B-Heretic-GSQ-RCO-GGUF) | `RVN-Qwen3.8-27B-Heretic-GSQ-RCO-IQ3_S.gguf` | 11.0 GiB |
 | Abliterated + MTP head (what this box runs) | same repo | `RVN-Qwen3.8-27B-Heretic-GSQ-RCO-IQ3_S-mtp.gguf` | 11.40 GiB |
 
-Measured on the same card, same protocol: 3 requests of 10801 tokens, 256-token replies. These are 11k prompts, so VRAM peaks below the 57k figure above:
+The abliterated file is the ISTA quant with weights edited in place. All 851 tensors match stock except 48 `ssm_alpha` tensors at F32 instead of BF16 (+22.5 MiB), plus one extra block `blk.64` (draft head, 15 tensors, 430 MiB). At `-ngl 58` that leaves 7 blocks on the host instead of 6.
 
 | metric | Stock `IQ3_S` | Abliterated `-mtp` |
 |---|---:|---:|
@@ -37,13 +31,13 @@ Measured on the same card, same protocol: 3 requests of 10801 tokens, 256-token 
 | Free at peak | 22 MiB | 196 MiB |
 | RSS peak | 3.9 GiB | 4.3 GiB |
 
-The abliterated file is the ISTA quant with weights edited in place. All 851 tensors match stock except 48 `ssm_alpha` tensors at F32 instead of BF16 (+22.5 MiB), plus one extra block `blk.64` (draft head, 15 tensors, 430 MiB). At `-ngl 58` that leaves 7 blocks on the host instead of 6. That accounts for most of the 7% slowdown: moving block 58 to CPU on stock (`-ngl 57`) costs the same, 16.7 vs 17.7 tok/s. Idle cost is +34 MiB, so the budget below covers both.
+Most of the 7% slowdown is one fewer GPU block: moving block 58 to CPU on stock (`-ngl 57`) costs the same, 16.7 vs 17.7 tok/s. Idle cost is +34 MiB, so the budget below covers both.
 
 ---
 
 ## Hardware
 
-Reference box: Ryzen 9 9900X 12C/24T, RTX 4070 SUPER 12 GB, 30 GB RAM (8 GB is enough), NVMe, Linux, GCC 16.2.1, CUDA 13.4.
+Reference box: Ryzen 9 9900X 12C/24T, RTX 4070 SUPER 12 GB (12282 MiB), 30.4 GiB RAM (8 GB is enough), NVMe, Linux, GCC 16.2.1, CUDA 13.4 toolkit.
 
 Throughput follows GPU memory bandwidth (plus CPU bandwidth for the host-resident layers). Placement comes from the architecture and quant, so it carries over to other 12 GB cards.
 
@@ -105,11 +99,9 @@ Two notes on that last row. `12282 - used` overstates free; the driver holds abo
 - `-ngl 64` OOMs. Blocks 58-63 add 1073 MiB: 10827 + 1125 KV = 11952 MiB before context, graphs, and driver overhead, about 500 MiB over. It fails on KV alloc: `allocating 1125.00 MiB on device 0: cudaMalloc failed: out of memory` then `failed to allocate buffer for kv cache`.
 - `-ot token_embd=CPU` is required to start at all.
 
-### RAM
+### 4. RAM stays under 8 GB
 
 CPU blocks plus embedding table are 1461 MiB of weights, mmapped. RSS: 2.1-2.2 GiB idle, 2.8 GiB after one 57k request, 4.0 GiB after three 10801-token requests (3.9-4.3 GiB across builds). Grows about 0.6 GiB per cached prompt. That is prompt cache, not weights. Budget 8 GB for a server holding several long contexts. At idle `smaps_rollup` shows 1598 MiB file-backed plus 525 MiB anonymous.
-
-Load shows a brief `VmRSS` spike to about 11.4 GiB for a second while the GGUF is mapped, then it drops. At that point `Pss_File` is 11.1 GiB vs `Pss_Anon` 0.24 GiB, and system `MemAvailable` falls only about 2.1 GiB. These are clean page-cache pages. 8 GB RAM loads it.
 
 ---
 
@@ -128,12 +120,6 @@ Published numbers, `IQ3_S` vs BF16 (sizes decimal GB; the 11.8 GB row is the 11.
 | UD-IQ3_S (uniform ref) | 3.52 | 12.0 GB | 7.16 | 75.49 | 101.5% | 96.67 | 89.90 | 84.00 |
 
 Task average 91.70 vs 91.87. Ties AIME25 and LiveCodeBench, -0.51 on GPQA-Diamond.
-
-Caveats:
-
-- These are the release authors' benchmarks. Little independent verification.
-- Still 3.5-bit, not original. Perplexity is worse: wiki 7.07 vs 7.05 (+0.3%), C4 11.76 vs 11.45 (+2.7%), FineWeb-Edu 8.34 vs 8.14 (+2.5%). Exact-match ties can hide loss in recall, style, and long-context behavior.
-- Best option at this size anyway. For about 11 GiB you get near-BF16 (GSQ-RCO) or a clearly worse uniform quant. No BF16-shaped option exists on 12 GB.
 
 ---
 
@@ -201,16 +187,6 @@ Abliterated differs only in `-m`:
 
 Flash attention stays at default `auto`, which is on with quantized V cache. `-fa off -ctv q4_0` fails with `quantized V cache requires flash_attn to be enabled`. No `-fa` flag is needed. CUDA graphs are compiled in (`GGML_CUDA_GRAPHS=ON`, upstream default `OFF`). The server logs `graphs reused` per request when active.
 
----
-
-## What did not fit
-
-- MTP speculative decoding (`--spec-type draft-mtp`). Fails two ways. At `-c 64000` it never starts: `failed to allocate CUDA0 buffer of size 387146240`. At `-c 32000` it loads then OOMs on the first request (peak 11862 MiB, 92 free). The draft wants its own context, KV, and graph buffers on top of a full allocation. Carrying the `-mtp` head without `--spec-type` is fine (+34 MiB).
-- `f16` KV. 4000 MiB at 64k. Does not fit.
-- `q8_0` KV. 2125 MiB at 64k, i.e. +1000 MiB over `q4_0` against single-digit free. Only works around `-c 32000` (KV 1063 MiB) or lower `-ngl`.
-
----
-
 ## Measuring it yourself
 
 - Decode/prefill: `print_timing` lines in the server log, e.g. `eval time = 47637.25 ms / 809 tokens (58.96 ms per token, 16.96 tokens per second)`. Decode depends on context: 18.1-18.4 tok/s on a 30-token prompt, 17.0 on 4-11k, 16.8 across 163 requests, 13.5 at 57k.
@@ -221,4 +197,4 @@ Flash attention stays at default `auto`, which is on with quantized V cache. `-f
 
 ## License
 
-MIT for these scripts, see [LICENSE](LICENSE). Models are Apache-2.0 per Hugging Face metadata.
+MIT for these scripts, see [LICENSE](LICENSE). Models are Apache-2.0 per Hugging Face metadata. Engine is [ggml-org/llama.cpp](https://github.com/ggml-org/llama.cpp) under its own license; this recipe only pins it.
