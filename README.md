@@ -1,6 +1,6 @@
-# Qwen3.8-27B-GSQ-RCO-Heretic (IQ3_S) @ 64k context
-# ~16-18 tok/sec decode, ~280-600 tok/sec prefill
-# on just 12GB VRAM + 8GB RAM
+Qwen3.8-27B-GSQ-RCO-Heretic (IQ3_S) @ 64k context
+~16-18 tok/sec decode, ~280-600 tok/sec prefill
+on just 12GB VRAM + 8GB RAM
 
 | metric | measured |
 |---|---|
