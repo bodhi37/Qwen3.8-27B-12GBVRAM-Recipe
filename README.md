@@ -4,10 +4,8 @@ on just 12GB VRAM + 8GB RAM
 
 | metric | measured |
 |---|---|
-| Decode | 16.8 tok/s median over 163 requests (p90 18.0, max 18.5). 18.1-18.4 on a 30-token prompt, 17.0 on 4-11k, 13.5 at 57k |
+| Decode | 16.8 tok/s median over 163 requests (p90 18.0, max 18.5). |
 | Prefill | 280 tok/s median over the same 163 (max 673). 605 on a 4-11k prompt, 533 on a 57k prompt |
-| Context | 64000 tokens. A 57232-token prompt prefills at 533 tok/s, no OOM. One slot |
-| VRAM | 11724/12282 MiB used idle (230 free). 11947 used peak on the 57k request (7 free) |
 
 ---
 
@@ -31,15 +29,11 @@ The abliterated file is the ISTA quant with weights edited in place. All 851 ten
 | Free at peak | 22 MiB | 196 MiB |
 | RSS peak | 3.9 GiB | 4.3 GiB |
 
-Most of the 7% slowdown is one fewer GPU block: moving block 58 to CPU on stock (`-ngl 57`) costs the same, 16.7 vs 17.7 tok/s. Idle cost is +34 MiB, so the budget below covers both.
-
 ---
 
 ## Hardware
 
 Reference box: Ryzen 9 9900X 12C/24T, RTX 4070 SUPER 12 GB (12282 MiB), 30.4 GiB RAM (8 GB is enough), NVMe, Linux, GCC 16.2.1, CUDA 13.4 toolkit.
-
-Throughput follows GPU memory bandwidth (plus CPU bandwidth for the host-resident layers). Placement comes from the architecture and quant, so it carries over to other 12 GB cards.
 
 ---
 
